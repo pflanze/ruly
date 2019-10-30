@@ -32,12 +32,9 @@ struct RawPair (Value, Value);
 
 #[derive(Debug)]
 struct RawLambda {
-    // with no captured env
-    arityWithEnv: u16,
-    // ^ ok?, this is the number of free local variables in the
-    // body. (A "low-level arity" i.e. number of *variables* not
-    // argument values, (lambda (a b . r) ..) will have an arity of
-    // just 3.)
+    nvars: u16,
+    // ^ the number of free local variables in the body (env and
+    // arguments)
     body: Rc<Expr>,
 }
 
@@ -66,10 +63,10 @@ impl Callable {
     fn apply (&self, argvals: &mut dyn std::iter::Iterator<Item = Value>) -> Value {
         match self {
             Callable::Function(lam) => {
-                let envAndArgs = argvals.collect::<Vec<Value>>();
-                if lam.arityWithEnv == envAndArgs.len().try_into().unwrap() {
+                let env_and_args = argvals.collect::<Vec<Value>>();
+                if lam.nvars == env_and_args.len().try_into().unwrap() {
                     // evaluate the lambda's body in this new env
-                    (*(lam.body)).eval(&envAndArgs)
+                    (*(lam.body)).eval(&env_and_args)
                 } else {
                     string("WRONG_ARITY")
                 }
@@ -111,11 +108,11 @@ enum Value {
 fn boolean (v: bool) -> Value { Value::Boolean(v) }
 fn integer (v: i64) -> Value { Value::Integer64(v) }
 fn string (v: &str) -> Value { Value::String(Rc::new(v.to_string())) }
-const nil : Value = Value::Nil;
+const NIL : Value = Value::Nil;
 fn cons (a: Value, b: Value) -> Value { Value::Pair(Rc::new(RawPair(a, b))) }
 //...
 fn function(nvars: u16, body: Expr) -> Value {
-    Value::Callable(Callable::Function(Rc::new(RawLambda { arityWithEnv: nvars,
+    Value::Callable(Callable::Function(Rc::new(RawLambda { nvars: nvars,
                                                            body: Rc::new(body) })))
 }
 fn primitive2(proc: fn (Value, Value) -> Value) -> Value {
@@ -123,8 +120,8 @@ fn primitive2(proc: fn (Value, Value) -> Value) -> Value {
         proc: proc
     })
 }
-fn primitiveN(arity: Range<u16>,
-              proc: fn (&Vec<Value>) -> Value) -> Value {
+fn primitive_n(arity: Range<u16>,
+               proc: fn (&Vec<Value>) -> Value) -> Value {
     Value::Callable(Callable::PrimitiveN {
         arity: arity,
         proc: proc
@@ -199,7 +196,7 @@ fn main() {
     eval(literal(boolean(false)));
     eval(literal(boolean(true)));
     eval(literal(string("Hello")));
-    eval(literal(cons(string("hi"), nil)));
+    eval(literal(cons(string("hi"), NIL)));
 
     let unbound_f= globalsymbol("f");
     let x= globalsymbol_bound("x", integer(42));
