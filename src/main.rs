@@ -5,14 +5,15 @@ use std::convert::TryInto;
 use std::ops::{Range};
 use derivative::Derivative;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 struct Baresymbol(String);
 
 fn baresymbol(name: &str) -> Baresymbol {
     Baresymbol(String::from(name))
 }
 
-#[derive(Debug)] // do not add Clone !
+#[derive(Debug, PartialEq)] // do not add Clone !
+// ^ XX really add PartialEq? Really mis-use Globalsymbol as symbol in Value?
 struct Globalsymbol {
     namesym: Baresymbol,
     value: Option<Value>, // XX mut
@@ -27,10 +28,10 @@ fn globalsymbol_bound(name: &str, v: Value) -> Rc<Globalsymbol> {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 struct RawPair (Value, Value);
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 struct Body {
     nvars: u16,
     // ^ the number of free local variables in the body
@@ -38,7 +39,32 @@ struct Body {
 }
 
 
+// Hack: "typedef pattern" and casting to make PartialEq work (on the
+// current Rust version)
 #[derive(Clone)]
+struct Primitive2proc(fn (Value, Value) -> Value);
+impl PartialEq for Primitive2proc {
+    fn eq(&self, other: &Primitive2proc) -> bool {
+        match (self, other) {
+            (&Primitive2proc(a), &Primitive2proc(b))
+                =>  a as usize == b as usize
+        }
+    }
+}
+#[derive(Clone)]
+struct PrimitiveNproc(fn (&Vec<Value>) -> Value);
+impl PartialEq for PrimitiveNproc {
+    fn eq(&self, other: &PrimitiveNproc) -> bool {
+        match (self, other) {
+            (&PrimitiveNproc(a), &PrimitiveNproc(b))
+                =>  a as usize == b as usize
+        }
+    }
+}
+
+
+#[derive(Clone, PartialEq)]
+// PartialEq just because we support first-class functions
 #[derive(Derivative)]
 #[derivative(Debug)]
 enum Callable {
@@ -49,12 +75,12 @@ enum Callable {
     },
     Primitive2 {
         #[derivative(Debug="ignore")]
-        proc: fn (Value, Value) -> Value,
+        proc: Primitive2proc,
     },
     PrimitiveN {
         arity: Range<u16>,
         #[derivative(Debug="ignore")]
-        proc: fn (&Vec<Value>) -> Value,
+        proc: PrimitiveNproc,
     },
 }
 
@@ -73,7 +99,7 @@ impl Callable {
             Callable::Closure{env, proc} => {
                 string("TODO")
             },
-            Callable::Primitive2{proc} =>
+            Callable::Primitive2{proc: Primitive2proc(proc)} =>
             match (|| -> Option<Value> {
                 let a1= argvals.next()?;
                 let a2= argvals.next()?;
@@ -92,7 +118,7 @@ impl Callable {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 enum Value {
     Boolean(bool),
     Integer64(i64),
@@ -116,14 +142,14 @@ fn function(nvars: u16, body: Expr) -> Value {
 }
 fn primitive2(proc: fn (Value, Value) -> Value) -> Value {
     Value::Callable(Callable::Primitive2 {
-        proc: proc
+        proc: Primitive2proc(proc)
     })
 }
 fn primitive_n(arity: Range<u16>,
                proc: fn (&Vec<Value>) -> Value) -> Value {
     Value::Callable(Callable::PrimitiveN {
         arity: arity,
-        proc: proc
+        proc: PrimitiveNproc(proc)
     })
 }
 
@@ -137,7 +163,8 @@ impl Value {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
+// PartialEq because Expr is used in Callable (via Body)
 enum Expr {
     Literal(Value),
     App(Rc<Expr>, Vec<Rc<Expr>>),
@@ -186,34 +213,51 @@ impl Eval for Expr {
 }
 
 
-fn eval(prog: Expr) {
+fn t(prog: Expr, expected: Value) {
     let env= Vec::new();
-    println!("{:?} = {:?}", prog, prog.eval(&env));
+    let res= prog.eval(&env);
+    if res == expected {
+        ()
+    } else {
+        println!("{:?} = {:?}, expected: {:?}", prog, res, expected);
+    }
 }
 
 fn main() {
-    eval(literal(boolean(false)));
-    eval(literal(boolean(true)));
-    eval(literal(string("Hello")));
-    eval(literal(cons(string("hi"), NIL)));
+    t(literal(boolean(false)), boolean(false));
+    t(literal(boolean(true)), boolean(true));
+    t(literal(string("Hello")), string("Hello"));
+    t(literal(cons(string("hi"), NIL)), cons(string("hi"), NIL));
 
+    let wrong_arity_error= string("WRONG_ARITY");
+    let not_enough_args_error= string("NOT ENOUGH ARGUMENTS");
+    let too_many_args_error= string("TOO MANY ARGUMENTS");
+    
     let unbound_f= globalsymbol("f");
     let x= globalsymbol_bound("x", integer(42));
     let f0= globalsymbol_bound("f0", function(0, globalref(&x)));
     let f1= globalsymbol_bound("f1", function(1, globalref(&x)));
-    eval(globalref(&f0));
-    eval(app(globalref(&f0), vec![]));
-    eval(app(globalref(&f0), vec![globalref(&f0)])); // wrong arity
-    eval(app(globalref(&f1), vec![globalref(&f0)]));
+    t(globalref(&f0),
+      function(0, globalref(&x)));
+    t(app(globalref(&f0), vec![]),
+      integer(42));
+    t(app(globalref(&f0), vec![globalref(&f0)]),
+      wrong_arity_error);
+    t(app(globalref(&f1), vec![globalref(&f0)]),
+      integer(42));
     let var_cons= globalsymbol_bound("cons", primitive2(cons));
-    eval(app(globalref(&var_cons),
-             vec![app(globalref(&f1), vec![globalref(&f0)]),
-                  literal(integer(41))])); // (cons (f1 f0) 41)
-    eval(app(globalref(&var_cons),
-             vec![app(globalref(&f1), vec![globalref(&f0)])])); // not enough args
-    eval(app(globalref(&var_cons),
-             vec![literal(integer(41)),
-                  literal(integer(41)),
-                  literal(integer(41))])); // too many args
+    t(app(globalref(&var_cons),
+          vec![app(globalref(&f1), vec![globalref(&f0)]),
+               literal(integer(41))]),
+      // (cons (f1 f0) 41)
+      cons(integer(42), integer(41)));
+    t(app(globalref(&var_cons),
+          vec![app(globalref(&f1), vec![globalref(&f0)])]),
+      not_enough_args_error);
+    t(app(globalref(&var_cons),
+          vec![literal(integer(41)),
+               literal(integer(41)),
+               literal(integer(41))]),
+      too_many_args_error);
 }
 
