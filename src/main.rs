@@ -31,11 +31,10 @@ fn globalsymbol_bound(name: &str, v: Value) -> Rc<Globalsymbol> {
 struct RawPair (Value, Value);
 
 #[derive(Debug)]
-struct RawLambda {
+struct Body {
     nvars: u16,
-    // ^ the number of free local variables in the body (env and
-    // arguments)
-    body: Rc<Expr>,
+    // ^ the number of free local variables in the body
+    expr: Rc<Expr>,
 }
 
 
@@ -43,10 +42,10 @@ struct RawLambda {
 #[derive(Derivative)]
 #[derivative(Debug)]
 enum Callable {
-    Function(Rc<RawLambda>),
+    Function(Rc<Body>),
     Closure {
         env: Vec<Value>,
-        proc: Rc<RawLambda>,
+        proc: Rc<Body>,
     },
     Primitive2 {
         #[derivative(Debug="ignore")]
@@ -66,7 +65,7 @@ impl Callable {
                 let env_and_args = argvals.collect::<Vec<Value>>();
                 if lam.nvars == env_and_args.len().try_into().unwrap() {
                     // evaluate the lambda's body in this new env
-                    (*(lam.body)).eval(&env_and_args)
+                    (*(lam.expr)).eval(&env_and_args)
                 } else {
                     string("WRONG_ARITY")
                 }
@@ -112,8 +111,8 @@ const NIL : Value = Value::Nil;
 fn cons (a: Value, b: Value) -> Value { Value::Pair(Rc::new(RawPair(a, b))) }
 //...
 fn function(nvars: u16, body: Expr) -> Value {
-    Value::Callable(Callable::Function(Rc::new(RawLambda { nvars: nvars,
-                                                           body: Rc::new(body) })))
+    Value::Callable(Callable::Function(Rc::new(Body { nvars: nvars,
+                                                      expr: Rc::new(body) })))
 }
 fn primitive2(proc: fn (Value, Value) -> Value) -> Value {
     Value::Callable(Callable::Primitive2 {
@@ -142,7 +141,7 @@ impl Value {
 enum Expr {
     Literal(Value),
     App(Rc<Expr>, Vec<Rc<Expr>>),
-    Lamda(Rc<RawLambda>),
+    Lamda(Rc<Body>),
     Globalref(Rc<Globalsymbol>),
     Localref(u16),
     Globaldef(Rc<Globalsymbol>, Rc<Expr>), // def-once I mean erlangy?
