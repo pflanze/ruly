@@ -2,7 +2,8 @@
 use failure::{Error};
 use std::rc::{Rc};
 use std::convert::TryInto;
-
+use std::ops::{Range};
+use derivative::Derivative;
 
 #[derive(Debug)]
 struct Baresymbol(String);
@@ -41,13 +42,24 @@ struct RawLambda {
 }
 
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
+#[derive(Derivative)]
+#[derivative(Debug)]
 enum Callable {
     Function(Rc<RawLambda>),
     Closure {
         env: Vec<Value>,
         proc: Rc<RawLambda>,
-    }
+    },
+    Primitive2 {
+        #[derivative(Debug="ignore")]
+        proc: fn (Value, Value) -> Value,
+    },
+    PrimitiveN {
+        arity: Range<u16>,
+        #[derivative(Debug="ignore")]
+        proc: fn (&Vec<Value>) -> Value,
+    },
 }
 
 impl Callable {
@@ -63,6 +75,21 @@ impl Callable {
                 }
             },
             Callable::Closure{env, proc} => {
+                string("TODO")
+            },
+            Callable::Primitive2{proc} =>
+            match (|| -> Option<Value> {
+                let a1= argvals.next()?;
+                let a2= argvals.next()?;
+                match argvals.next() {
+                    None => Some(proc(a1, a2)),
+                    Some(_) => Some(string("TOO MANY ARGUMENTS"))
+                }
+            })() {
+                Some(res) => res,
+                None => string("NOT ENOUGH ARGUMENTS")
+            },
+            Callable::PrimitiveN{arity, proc} => {
                 string("TODO")
             },
         }
@@ -91,6 +118,19 @@ fn function(nvars: u16, body: Expr) -> Value {
     Value::Callable(Callable::Function(Rc::new(RawLambda { arityWithEnv: nvars,
                                                            body: Rc::new(body) })))
 }
+fn primitive2(proc: fn (Value, Value) -> Value) -> Value {
+    Value::Callable(Callable::Primitive2 {
+        proc: proc
+    })
+}
+fn primitiveN(arity: Range<u16>,
+              proc: fn (&Vec<Value>) -> Value) -> Value {
+    Value::Callable(Callable::PrimitiveN {
+        arity: arity,
+        proc: proc
+    })
+}
+
 
 impl Value {
     fn apply(&self, args: &mut dyn std::iter::Iterator<Item = Value>) -> Value {
@@ -165,8 +205,19 @@ fn main() {
     let x= globalsymbol_bound("x", integer(42));
     let f0= globalsymbol_bound("f0", function(0, globalref(&x)));
     let f1= globalsymbol_bound("f1", function(1, globalref(&x)));
-    let args : Vec<Expr> = Vec::new();
     eval(globalref(&f0));
-    eval(app(globalref(&f0), args));
+    eval(app(globalref(&f0), vec![]));
+    eval(app(globalref(&f0), vec![globalref(&f0)])); // wrong arity
+    eval(app(globalref(&f1), vec![globalref(&f0)]));
+    let var_cons= globalsymbol_bound("cons", primitive2(cons));
+    eval(app(globalref(&var_cons),
+             vec![app(globalref(&f1), vec![globalref(&f0)]),
+                  literal(integer(41))])); // (cons (f1 f0) 41)
+    eval(app(globalref(&var_cons),
+             vec![app(globalref(&f1), vec![globalref(&f0)])])); // not enough args
+    eval(app(globalref(&var_cons),
+             vec![literal(integer(41)),
+                  literal(integer(41)),
+                  literal(integer(41))])); // too many args
 }
 
