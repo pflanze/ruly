@@ -229,10 +229,12 @@ mod tests {
             }
         };
 
-        t(literal(boolean(false)), boolean(false));
-        t(literal(boolean(true)), boolean(true));
-        t(literal(string("Hello")), string("Hello"));
-        t(literal(cons(string("hi"), NIL)), cons(string("hi"), NIL));
+        for v in &[boolean(false),
+                   boolean(true),
+                   string("Hello"),
+                   cons(string("hi"), NIL)] {
+            t(literal(v.clone()), v.clone())
+        }
 
         let wrong_arity_error= string("WRONG_ARITY");
         let not_enough_args_error= string("NOT ENOUGH ARGUMENTS");
