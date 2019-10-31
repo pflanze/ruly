@@ -213,51 +213,63 @@ impl Eval for Expr {
 }
 
 
-fn t(prog: Expr, expected: Value) {
-    let env= Vec::new();
-    let res= prog.eval(&env);
-    if res == expected {
-        ()
-    } else {
-        println!("{:?} = {:?}, expected: {:?}", prog, res, expected);
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn main() {
+        let mut errors= 0;
+        let mut t= |prog: Expr, expected: Value| {
+            let env= Vec::new();
+            let res= prog.eval(&env);
+            if res != expected {
+                errors += 1;
+                println!("{:?} = {:?}, expected: {:?}", prog, res, expected);
+            }
+        };
+
+        t(literal(boolean(false)), boolean(false));
+        t(literal(boolean(true)), boolean(true));
+        t(literal(string("Hello")), string("Hello"));
+        t(literal(cons(string("hi"), NIL)), cons(string("hi"), NIL));
+
+        let wrong_arity_error= string("WRONG_ARITY");
+        let not_enough_args_error= string("NOT ENOUGH ARGUMENTS");
+        let too_many_args_error= string("TOO MANY ARGUMENTS");
+
+        let unbound_f= globalsymbol("f");
+        let x= globalsymbol_bound("x", integer(42));
+        let f0= globalsymbol_bound("f0", function(0, globalref(&x)));
+        let f1= globalsymbol_bound("f1", function(1, globalref(&x)));
+        t(globalref(&f0),
+          function(0, globalref(&x)));
+        t(app(globalref(&f0), vec![]),
+          integer(42));
+        t(app(globalref(&f0), vec![globalref(&f0)]),
+          wrong_arity_error);
+        t(app(globalref(&f1), vec![globalref(&f0)]),
+          integer(42));
+        let var_cons= globalsymbol_bound("cons", primitive2(cons));
+        t(app(globalref(&var_cons),
+              vec![app(globalref(&f1), vec![globalref(&f0)]),
+                   literal(integer(41))]),
+          // (cons (f1 f0) 41)
+          cons(integer(42), integer(41)));
+        t(app(globalref(&var_cons),
+              vec![app(globalref(&f1), vec![globalref(&f0)])]),
+          not_enough_args_error);
+        t(app(globalref(&var_cons),
+              vec![literal(integer(41)),
+                   literal(integer(41)),
+                   literal(integer(41))]),
+          too_many_args_error);
+        assert_eq!(errors, 0);
     }
+
 }
+
 
 fn main() {
-    t(literal(boolean(false)), boolean(false));
-    t(literal(boolean(true)), boolean(true));
-    t(literal(string("Hello")), string("Hello"));
-    t(literal(cons(string("hi"), NIL)), cons(string("hi"), NIL));
-
-    let wrong_arity_error= string("WRONG_ARITY");
-    let not_enough_args_error= string("NOT ENOUGH ARGUMENTS");
-    let too_many_args_error= string("TOO MANY ARGUMENTS");
-    
-    let unbound_f= globalsymbol("f");
-    let x= globalsymbol_bound("x", integer(42));
-    let f0= globalsymbol_bound("f0", function(0, globalref(&x)));
-    let f1= globalsymbol_bound("f1", function(1, globalref(&x)));
-    t(globalref(&f0),
-      function(0, globalref(&x)));
-    t(app(globalref(&f0), vec![]),
-      integer(42));
-    t(app(globalref(&f0), vec![globalref(&f0)]),
-      wrong_arity_error);
-    t(app(globalref(&f1), vec![globalref(&f0)]),
-      integer(42));
-    let var_cons= globalsymbol_bound("cons", primitive2(cons));
-    t(app(globalref(&var_cons),
-          vec![app(globalref(&f1), vec![globalref(&f0)]),
-               literal(integer(41))]),
-      // (cons (f1 f0) 41)
-      cons(integer(42), integer(41)));
-    t(app(globalref(&var_cons),
-          vec![app(globalref(&f1), vec![globalref(&f0)])]),
-      not_enough_args_error);
-    t(app(globalref(&var_cons),
-          vec![literal(integer(41)),
-               literal(integer(41)),
-               literal(integer(41))]),
-      too_many_args_error);
+    unimplemented!()
 }
-
