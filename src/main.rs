@@ -9,7 +9,7 @@ use std::convert::TryInto;
 use std::ops::{Range};
 use derivative::Derivative;
 
-macro_rules! DO {
+macro_rules! Do {
     ( $($b:tt)* ) => ( (|| { $($b)* })() )
 }
 
@@ -117,7 +117,7 @@ impl Callable {
                 }
             },
             Callable::Primitive2{proc: Primitive2proc(proc)} =>
-            match DO!{
+            match Do!{
                 let a1= argvals.next()?;
                 let a2= argvals.next()?;
                 match argvals.next() {
