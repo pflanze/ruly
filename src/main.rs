@@ -67,7 +67,7 @@ impl PartialEq for PrimitiveNproc {
 
 
 #[derive(Clone, PartialEq)]
-// PartialEq just because we support first-class functions
+// PartialEq because we support first-class functions
 #[derive(Derivative)]
 #[derivative(Debug)]
 enum Callable {
@@ -101,7 +101,7 @@ impl Callable {
                 }
             },
             Callable::Closure{env, body} => {
-                let mut envi= env.iter().map(|v: &Value| v.clone());
+                let envi= env.iter().map(|v: &Value| v.clone());
                 let env_and_args = envi.chain(argvals).collect::<Vec<Value>>();
                 
                 // COPY-PASTE from above
@@ -179,7 +179,7 @@ impl Value {
     fn apply(&self, args: &mut dyn std::iter::Iterator<Item = Value>) -> Value {
         match self {
             Value::Callable(c) => c.apply(args),
-            _ => Value::String(Rc::new("NOT_A_CALLABLE".to_string()))
+            _ => string("NOT_A_CALLABLE")
         }
     }
 }
@@ -260,7 +260,7 @@ impl Eval for Expr {
                     None => string("UNBOUND")
                 }
             },
-            _ => Value::String(Rc::new("NOMATCH".to_string()))
+            _ => string("NOMATCH")
         }
     }
 }
