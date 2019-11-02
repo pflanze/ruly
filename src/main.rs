@@ -9,6 +9,11 @@ use std::convert::TryInto;
 use std::ops::{Range};
 use derivative::Derivative;
 
+macro_rules! mdo {
+    ($t:ty, $e:block) => ( (|| -> $t { $e })() )
+}
+
+
 #[derive(Debug, PartialEq)]
 struct Baresymbol(String);
 
@@ -112,14 +117,14 @@ impl Callable {
                 }
             },
             Callable::Primitive2{proc: Primitive2proc(proc)} =>
-            match (|| -> Option<Value> {
+            match mdo!(Option<Value>, {
                 let a1= argvals.next()?;
                 let a2= argvals.next()?;
                 match argvals.next() {
                     None => Some(proc(a1, a2)),
                     Some(_) => Some(string("TOO MANY ARGUMENTS"))
                 }
-            })() {
+            }) {
                 Some(res) => res,
                 None => string("NOT ENOUGH ARGUMENTS")
             },
