@@ -71,7 +71,7 @@ enum Callable {
     Function(Rc<Body>),
     Closure {
         env: Vec<Value>,
-        proc: Rc<Body>,
+        body: Rc<Body>,
     },
     Primitive2 {
         #[derivative(Debug="ignore")]
@@ -87,17 +87,26 @@ enum Callable {
 impl Callable {
     fn apply (&self, argvals: &mut dyn std::iter::Iterator<Item = Value>) -> Value {
         match self {
-            Callable::Function(lam) => {
+            Callable::Function(body) => {
                 let env_and_args = argvals.collect::<Vec<Value>>();
-                if lam.nvars == env_and_args.len().try_into().unwrap() {
-                    // evaluate the lambda's body in this new env
-                    (*(lam.expr)).eval(&env_and_args)
+
+                // evaluate the body in this new env if arity is correct
+                if body.nvars == env_and_args.len().try_into().unwrap() {
+                    (*(body.expr)).eval(&env_and_args)
                 } else {
                     string("WRONG_ARITY")
                 }
             },
-            Callable::Closure{env, proc} => {
-                string("TODO")
+            Callable::Closure{env, body} => {
+                let mut envi= env.iter().map(|v: &Value| v.clone());
+                let env_and_args = envi.chain(argvals).collect::<Vec<Value>>();
+                
+                // COPY-PASTE from above
+                if body.nvars == env_and_args.len().try_into().unwrap() {
+                    (*(body.expr)).eval(&env_and_args)
+                } else {
+                    string("WRONG_ARITY")
+                }
             },
             Callable::Primitive2{proc: Primitive2proc(proc)} =>
             match (|| -> Option<Value> {
@@ -140,6 +149,15 @@ fn function(nvars: u16, body: Expr) -> Value {
     Value::Callable(Callable::Function(Rc::new(Body { nvars: nvars,
                                                       expr: Rc::new(body) })))
 }
+fn closure(env: Vec<Value>,
+           nvars: u16,
+           body: Expr) -> Value {
+    Value::Callable(Callable::Closure {
+        env: env,
+        body: Rc::new(Body { nvars: nvars,
+                             expr: Rc::new(body) }),
+    })
+}
 fn primitive2(proc: fn (Value, Value) -> Value) -> Value {
     Value::Callable(Callable::Primitive2 {
         proc: Primitive2proc(proc)
@@ -168,7 +186,10 @@ impl Value {
 enum Expr {
     Literal(Value),
     App(Rc<Expr>, Vec<Rc<Expr>>),
-    Lamda(Rc<Body>),
+    Lambda {
+        envslots: Option<Vec<u16>>,
+        body: Rc<Body>
+    },
     Globalref(Rc<Globalsymbol>),
     Localref(u16),
     Globaldef(Rc<Globalsymbol>, Rc<Expr>), // def-once I mean erlangy?
@@ -181,6 +202,18 @@ fn app(f: Expr, args: Vec<Expr>) -> Expr {
 fn globalref(v: &Rc<Globalsymbol>) -> Expr {
     Expr::Globalref(v.clone())
 }
+fn localref(i: u16) -> Expr { Expr::Localref(i) }
+fn lambda(envslots: Option<Vec<u16>>,
+          arity: u16,
+          body: Expr) -> Expr {
+    let nvars= match &envslots {
+        Some(slots) => slots.len() as u16 + arity, // XX danger cast?
+        None => arity
+    };
+    Expr::Lambda { envslots: envslots,
+                   body: Rc::new(Body { nvars: nvars,
+                                        expr: Rc::new(body)})}
+}
 
 
 trait Eval {
@@ -191,7 +224,24 @@ impl Eval for Expr {
     fn eval(&self, env: &Vec<Value>) -> Value {
         match self {
             Expr::Literal(v) => v.clone(),
-            Expr::Lamda(l) => Value::Callable(Callable::Function(l.clone())),
+            Expr::Lambda {envslots, body} => {
+                match envslots {
+                    Some(slots) => {
+                        Value::Callable
+                            (Callable::Closure
+                             {
+                                 env: {
+                                     slots
+                                         .into_iter()
+                                         .map(|i| env[*i as usize].clone())
+                                         .collect()
+                                 },
+                                 body: body.clone()
+                             })
+                    },
+                    None => Value::Callable(Callable::Function(body.clone())),
+                }
+            }
             Expr::App(p, args) => {
                 let pval = p.eval(env);
                 let mut argvals = args.iter().map(|v| (*v).eval(env));
@@ -273,6 +323,22 @@ mod tests {
                    literal(integer(41)),
                    literal(integer(41))]),
           too_many_args_error);
+
+        // (lambda () 41)
+        let e_simple= lambda(None, 0, literal(integer(41)));
+        t(e_simple,
+          function(0, literal(integer(41))));
+        
+        // (lambda (x) (lambda (y) (cons x y)))
+        let e_ccons= lambda(None, 1,
+                            lambda(Some(vec![0]), 1,
+                                   app(globalref(&_cons),
+                                       vec![localref(0),
+                                            localref(1)])));
+        t(app(app(e_ccons,
+                  vec![literal(integer(41))]),
+              vec![literal(integer(42))]),
+          cons(integer(41), integer(42)));
 
         assert_eq!(errors, 0);
     }
