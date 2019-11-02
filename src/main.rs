@@ -1,4 +1,8 @@
 
+// Not done yet:
+//   - proper error system in the guest language
+//   - have Value be the size of 1 machine word so it's cheap to copy
+
 use failure::{Error};
 use std::rc::{Rc};
 use std::convert::TryInto;
@@ -33,8 +37,7 @@ struct RawPair (Value, Value);
 
 #[derive(Debug, PartialEq)]
 struct Body {
-    nvars: u16,
-    // ^ the number of free local variables in the body
+    nvars: u16, // the number of free local variables in the body
     expr: Rc<Expr>,
 }
 
