@@ -120,10 +120,10 @@ impl Callable {
             match Do!{
                 let a1= argvals.next()?;
                 let a2= argvals.next()?;
-                match argvals.next() {
-                    None => Some(proc(a1, a2)),
-                    Some(_) => Some(string("TOO MANY ARGUMENTS"))
-                }
+                Some(match argvals.next() {
+                    None => proc(a1, a2),
+                    Some(_) => string("TOO MANY ARGUMENTS")
+                })
             } {
                 Some(res) => res,
                 None => string("NOT ENOUGH ARGUMENTS")
