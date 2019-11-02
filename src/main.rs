@@ -240,32 +240,40 @@ mod tests {
         let not_enough_args_error= string("NOT ENOUGH ARGUMENTS");
         let too_many_args_error= string("TOO MANY ARGUMENTS");
 
-        let unbound_f= globalsymbol("f");
-        let x= globalsymbol_bound("x", integer(42));
-        let f0= globalsymbol_bound("f0", function(0, globalref(&x)));
-        let f1= globalsymbol_bound("f1", function(1, globalref(&x)));
-        t(globalref(&f0),
-          function(0, globalref(&x)));
-        t(app(globalref(&f0), vec![]),
+        // let unbound_f= globalsymbol("f");
+        let _x= globalsymbol_bound("x", integer(42));
+        let _f0= globalsymbol_bound("f0", function(0, globalref(&_x)));
+        let _f1= globalsymbol_bound("f1", function(1, globalref(&_x)));
+
+        t(globalref(&_f0),
+          function(0, globalref(&_x)));
+        t(app(globalref(&_f0), vec![]),
           integer(42));
-        t(app(globalref(&f0), vec![globalref(&f0)]),
+        t(app(globalref(&_f0), vec![globalref(&_f0)]),
           wrong_arity_error);
-        t(app(globalref(&f1), vec![globalref(&f0)]),
+        t(app(globalref(&_f1), vec![globalref(&_f0)]),
           integer(42));
-        let var_cons= globalsymbol_bound("cons", primitive2(cons));
-        t(app(globalref(&var_cons),
-              vec![app(globalref(&f1), vec![globalref(&f0)]),
+
+        let _cons= globalsymbol_bound("cons", primitive2(cons));
+
+        // (cons (f1 f0) 41)
+        t(app(globalref(&_cons),
+              vec![app(globalref(&_f1), vec![globalref(&_f0)]),
                    literal(integer(41))]),
-          // (cons (f1 f0) 41)
           cons(integer(42), integer(41)));
-        t(app(globalref(&var_cons),
-              vec![app(globalref(&f1), vec![globalref(&f0)])]),
+
+        // (cons (f1 f0))
+        t(app(globalref(&_cons),
+              vec![app(globalref(&_f1), vec![globalref(&_f0)])]),
           not_enough_args_error);
-        t(app(globalref(&var_cons),
+
+        // (cons 41 41 41)
+        t(app(globalref(&_cons),
               vec![literal(integer(41)),
                    literal(integer(41)),
                    literal(integer(41))]),
           too_many_args_error);
+
         assert_eq!(errors, 0);
     }
 
