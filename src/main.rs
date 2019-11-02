@@ -10,7 +10,7 @@ use std::ops::{Range};
 use derivative::Derivative;
 
 macro_rules! mdo {
-    ($e:block) => ( (|| { $e })() )
+    ( $($b:tt)* ) => ( (|| { $($b)* })() )
 }
 
 
@@ -117,14 +117,14 @@ impl Callable {
                 }
             },
             Callable::Primitive2{proc: Primitive2proc(proc)} =>
-            match mdo!({
+            match mdo!{
                 let a1= argvals.next()?;
                 let a2= argvals.next()?;
                 match argvals.next() {
                     None => Some(proc(a1, a2)),
                     Some(_) => Some(string("TOO MANY ARGUMENTS"))
                 }
-            }) {
+            } {
                 Some(res) => res,
                 None => string("NOT ENOUGH ARGUMENTS")
             },
