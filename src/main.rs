@@ -293,163 +293,168 @@ impl Eval for Expr {
 }
 
 
+
+fn test_main(fib_n: i64, fib_expect: i64) {
+    let mut errors= 0;
+    let mut t= |prog: Expr, expected: Value| {
+        let env= Vec::new();
+        let res= prog.eval(&env);
+        if res != expected {
+            errors += 1;
+            println!("{:?} = {:?}, expected: {:?}", prog, res, expected);
+        }
+    };
+    let eval= |prog: Expr| {
+        prog.eval(&Vec::new())
+    };
+
+    for v in &[boolean(false),
+               boolean(true),
+               string("Hello"),
+               cons(string("hi"), NIL)] {
+        t(literal(v.clone()), v.clone())
+    }
+
+    let wrong_arity_error= string("WRONG_ARITY");
+    let not_enough_args_error= string("NOT ENOUGH ARGUMENTS");
+    let too_many_args_error= string("TOO MANY ARGUMENTS");
+
+    // let unbound_f= globalsymbol("f");
+    let _x= globalsymbol_bound("x", integer(42));
+    let _f0_= function(1001, 0, globalref(&_x));
+    let _f0= globalsymbol_bound("f0", _f0_.clone());
+    let _f1= globalsymbol_bound("f1", function(1002, 1, globalref(&_x)));
+
+    t(globalref(&_f0),
+      _f0_);
+    t(app(globalref(&_f0), vec![]),
+      integer(42));
+    t(app(globalref(&_f0), vec![globalref(&_f0)]),
+      wrong_arity_error);
+    t(app(globalref(&_f1), vec![globalref(&_f0)]),
+      integer(42));
+
+    let lt = |a: Value, b: Value| match (a, b) {
+        (Value::Integer64(_a), Value::Integer64(_b)) => Value::Boolean(_a < _b),
+        _ => string("TYPE ERROR")
+    };
+    let plus = |a: Value, b: Value| match (a, b) {
+        (Value::Integer64(_a), Value::Integer64(_b)) => Value::Integer64(_a + _b),
+        _ => string("TYPE ERROR")
+
+    };
+    let minus = |a: Value, b: Value| match (a, b) {
+        (Value::Integer64(_a), Value::Integer64(_b)) => Value::Integer64(_a - _b),
+        _ => string("TYPE ERROR")
+
+    };
+
+    let _cons= globalsymbol_bound("cons", primitive2(cons));
+    let _lt= globalsymbol_bound("<", primitive2(lt));
+    let _plus= globalsymbol_bound("+", primitive2(plus));
+    let _minus= globalsymbol_bound("-", primitive2(minus));
+
+    // (cons (f1 f0) 41)
+    t(app(globalref(&_cons),
+          vec![app(globalref(&_f1), vec![globalref(&_f0)]),
+               literal(integer(41))]),
+      cons(integer(42), integer(41)));
+
+    // (cons (f1 f0))
+    t(app(globalref(&_cons),
+          vec![app(globalref(&_f1), vec![globalref(&_f0)])]),
+      not_enough_args_error);
+
+    // (cons 41 41 41)
+    t(app(globalref(&_cons),
+          vec![literal(integer(41)),
+               literal(integer(41)),
+               literal(integer(41))]),
+      too_many_args_error);
+
+    // (lambda () 41)
+    let e_simple= lambda(2001, None, 0, literal(integer(41)));
+    t(e_simple,
+      function(2001, 0, literal(integer(41))));
+
+    // (lambda (x) (lambda (y) (cons x y)))
+    let e_ccons= lambda(2002, None, 1,
+                        lambda(2003, Some(vec![0]), 1,
+                               app(globalref(&_cons),
+                                   vec![localref(0),
+                                        localref(1)])));
+    t(app(app(e_ccons,
+              vec![literal(integer(41))]),
+          vec![literal(integer(42))]),
+      cons(integer(41), integer(42)));
+
+
+    // (def _Y
+    //      (lambda (_Y f)
+    //        (f (lambda (arg)
+    //            ((_Y _Y f) arg)))))
+    let __Y = globalsymbol_bound
+        ("_Y",
+         eval(lambda(2004, None, 2,
+                     app(localref(1),
+                         vec![lambda(2005, Some(vec![0,1]), 1,
+                                     app(app(localref(0),
+                                             vec![localref(0),
+                                                  localref(1)]),
+                                         vec![localref(2)]))]))));
+    // (def Y
+    //      (lambda (f)
+    //        (_Y _Y f)))
+    let _Y = globalsymbol_bound
+        ("Y",
+         eval(lambda(2006, None, 1,
+                     app(globalref(&__Y),
+                         vec![globalref(&__Y),
+                              localref(0)]))));
+    // (def fib
+    //      (Y (lambda (fib)
+    //           (lambda (n)
+    //             (if (< n 2)
+    //                 n
+    //                 (+ (fib (- n 1))
+    //                    (fib (- n 2))))))))
+    let _fib = globalsymbol_bound
+        ("fib",
+         eval(app(globalref(&_Y),
+                  vec![lambda(2007, None, 1,
+                              lambda(2008, Some(vec![0]), 1,
+                                     if_(app(globalref(&_lt),
+                                             vec![localref(1),
+                                                  literal(integer(2))]),
+                                         localref(1),
+                                         app(globalref(&_plus),
+                                             vec![app(localref(0),
+                                                      vec![app(globalref(&_minus),
+                                                               vec![localref(1),
+                                                                    literal(integer(1))])]),
+                                                  app(localref(0),
+                                                      vec![app(globalref(&_minus),
+                                                               vec![localref(1),
+                                                                    literal(integer(2))])])]))))])));
+    t(app(globalref(&_fib), vec![literal(integer(fib_n))]),
+      integer(fib_expect));
+
+    // --------------------------------------------------------------------------------
+    assert_eq!(errors, 0);
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
     
     #[test]
     fn main() {
-        let mut errors= 0;
-        let mut t= |prog: Expr, expected: Value| {
-            let env= Vec::new();
-            let res= prog.eval(&env);
-            if res != expected {
-                errors += 1;
-                println!("{:?} = {:?}, expected: {:?}", prog, res, expected);
-            }
-        };
-        let eval= |prog: Expr| {
-            prog.eval(&Vec::new())
-        };
-
-        for v in &[boolean(false),
-                   boolean(true),
-                   string("Hello"),
-                   cons(string("hi"), NIL)] {
-            t(literal(v.clone()), v.clone())
-        }
-
-        let wrong_arity_error= string("WRONG_ARITY");
-        let not_enough_args_error= string("NOT ENOUGH ARGUMENTS");
-        let too_many_args_error= string("TOO MANY ARGUMENTS");
-
-        // let unbound_f= globalsymbol("f");
-        let _x= globalsymbol_bound("x", integer(42));
-        let _f0_= function(1001, 0, globalref(&_x));
-        let _f0= globalsymbol_bound("f0", _f0_.clone());
-        let _f1= globalsymbol_bound("f1", function(1002, 1, globalref(&_x)));
-
-        t(globalref(&_f0),
-          _f0_);
-        t(app(globalref(&_f0), vec![]),
-          integer(42));
-        t(app(globalref(&_f0), vec![globalref(&_f0)]),
-          wrong_arity_error);
-        t(app(globalref(&_f1), vec![globalref(&_f0)]),
-          integer(42));
-
-        let lt = |a: Value, b: Value| match (a, b) {
-            (Value::Integer64(_a), Value::Integer64(_b)) => Value::Boolean(_a < _b),
-            _ => string("TYPE ERROR")
-        };
-        let plus = |a: Value, b: Value| match (a, b) {
-            (Value::Integer64(_a), Value::Integer64(_b)) => Value::Integer64(_a + _b),
-            _ => string("TYPE ERROR")
-
-        };
-        let minus = |a: Value, b: Value| match (a, b) {
-            (Value::Integer64(_a), Value::Integer64(_b)) => Value::Integer64(_a - _b),
-            _ => string("TYPE ERROR")
-
-        };
-        
-        let _cons= globalsymbol_bound("cons", primitive2(cons));
-        let _lt= globalsymbol_bound("<", primitive2(lt));
-        let _plus= globalsymbol_bound("+", primitive2(plus));
-        let _minus= globalsymbol_bound("-", primitive2(minus));
-
-        // (cons (f1 f0) 41)
-        t(app(globalref(&_cons),
-              vec![app(globalref(&_f1), vec![globalref(&_f0)]),
-                   literal(integer(41))]),
-          cons(integer(42), integer(41)));
-
-        // (cons (f1 f0))
-        t(app(globalref(&_cons),
-              vec![app(globalref(&_f1), vec![globalref(&_f0)])]),
-          not_enough_args_error);
-
-        // (cons 41 41 41)
-        t(app(globalref(&_cons),
-              vec![literal(integer(41)),
-                   literal(integer(41)),
-                   literal(integer(41))]),
-          too_many_args_error);
-
-        // (lambda () 41)
-        let e_simple= lambda(2001, None, 0, literal(integer(41)));
-        t(e_simple,
-          function(2001, 0, literal(integer(41))));
-        
-        // (lambda (x) (lambda (y) (cons x y)))
-        let e_ccons= lambda(2002, None, 1,
-                            lambda(2003, Some(vec![0]), 1,
-                                   app(globalref(&_cons),
-                                       vec![localref(0),
-                                            localref(1)])));
-        t(app(app(e_ccons,
-                  vec![literal(integer(41))]),
-              vec![literal(integer(42))]),
-          cons(integer(41), integer(42)));
-        
-
-        // (def _Y
-        //      (lambda (_Y f)
-        //        (f (lambda (arg)
-        //            ((_Y _Y f) arg)))))
-        let __Y = globalsymbol_bound
-            ("_Y",
-             eval(lambda(2004, None, 2,
-                         app(localref(1),
-                             vec![lambda(2005, Some(vec![0,1]), 1,
-                                         app(app(localref(0),
-                                                 vec![localref(0),
-                                                      localref(1)]),
-                                             vec![localref(2)]))]))));
-        // (def Y
-        //      (lambda (f)
-        //        (_Y _Y f)))
-        let _Y = globalsymbol_bound
-            ("Y",
-             eval(lambda(2006, None, 1,
-                         app(globalref(&__Y),
-                             vec![globalref(&__Y),
-                                  localref(0)]))));
-        // (def fib
-        //      (Y (lambda (fib)
-        //           (lambda (n)
-        //             (if (< n 2)
-        //                 n
-        //                 (+ (fib (- n 1))
-        //                    (fib (- n 2))))))))
-        let _fib = globalsymbol_bound
-            ("fib",
-             eval(app(globalref(&_Y),
-                      vec![lambda(2007, None, 1,
-                                  lambda(2008, Some(vec![0]), 1,
-                                         if_(app(globalref(&_lt),
-                                                 vec![localref(1),
-                                                      literal(integer(2))]),
-                                             localref(1),
-                                             app(globalref(&_plus),
-                                                 vec![app(localref(0),
-                                                          vec![app(globalref(&_minus),
-                                                                   vec![localref(1),
-                                                                        literal(integer(1))])]),
-                                                      app(localref(0),
-                                                          vec![app(globalref(&_minus),
-                                                                   vec![localref(1),
-                                                                        literal(integer(2))])])]))))])));
-        t(app(globalref(&_fib), vec![literal(integer(30))]),
-          integer(832040));
-
-        // --------------------------------------------------------------------------------
-        assert_eq!(errors, 0);
+        test_main(10, 55)
     }
-
 }
 
 
 fn main() {
-    unimplemented!()
+    test_main(30, 832040)
 }
