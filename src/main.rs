@@ -42,6 +42,7 @@ struct RawPair (Value, Value);
 
 #[derive(Debug, PartialEq)]
 struct Body {
+    location: u32, // XX hacky? instead of in the lambda, Callable, ? but maybe right place?
     nvars: u16, // the number of free local variables in the body
     expr: Rc<Expr>,
 }
@@ -102,6 +103,8 @@ impl Callable {
                 if body.nvars == env_and_args.len().try_into().unwrap() {
                     (*(body.expr)).eval(&env_and_args)
                 } else {
+                    println!(">>> arity error: {} expected, got {}, in Function {}",
+                             body.nvars, env_and_args.len(), body.location);
                     string("WRONG_ARITY")
                 }
             },
@@ -113,6 +116,8 @@ impl Callable {
                 if body.nvars == env_and_args.len().try_into().unwrap() {
                     (*(body.expr)).eval(&env_and_args)
                 } else {
+                    println!(">>> arity error: {} expected, got {}, in Closure {}",
+                             body.nvars, env_and_args.len(), body.location);
                     string("WRONG_ARITY")
                 }
             },
@@ -153,16 +158,19 @@ fn string (v: &str) -> Value { Value::String(Rc::new(v.to_string())) }
 const NIL : Value = Value::Nil;
 fn cons (a: Value, b: Value) -> Value { Value::Pair(Rc::new(RawPair(a, b))) }
 //...
-fn function(nvars: u16, body: Expr) -> Value {
-    Value::Callable(Callable::Function(Rc::new(Body { nvars: nvars,
+fn function(location: u32, nvars: u16, body: Expr) -> Value {
+    Value::Callable(Callable::Function(Rc::new(Body { location: location,
+                                                      nvars: nvars,
                                                       expr: Rc::new(body) })))
 }
-fn closure(env: Vec<Value>,
+fn closure(location: u32,
+           env: Vec<Value>,
            nvars: u16,
            body: Expr) -> Value {
     Value::Callable(Callable::Closure {
         env: env,
-        body: Rc::new(Body { nvars: nvars,
+        body: Rc::new(Body { location: location,
+                             nvars: nvars,
                              expr: Rc::new(body) }),
     })
 }
@@ -198,6 +206,7 @@ enum Expr {
         envslots: Option<Vec<u16>>,
         body: Rc<Body>
     },
+    If(Rc<Expr>, Rc<Expr>, Rc<Expr>),
     Globalref(Rc<Globalsymbol>),
     Localref(u16),
     Globaldef(Rc<Globalsymbol>, Rc<Expr>), // def-once I mean erlangy?
@@ -211,7 +220,8 @@ fn globalref(v: &Rc<Globalsymbol>) -> Expr {
     Expr::Globalref(v.clone())
 }
 fn localref(i: u16) -> Expr { Expr::Localref(i) }
-fn lambda(envslots: Option<Vec<u16>>,
+fn lambda(location: u32,
+          envslots: Option<Vec<u16>>,
           arity: u16,
           body: Expr) -> Expr {
     let nvars= match &envslots {
@@ -219,8 +229,12 @@ fn lambda(envslots: Option<Vec<u16>>,
         None => arity
     };
     Expr::Lambda { envslots: envslots,
-                   body: Rc::new(Body { nvars: nvars,
+                   body: Rc::new(Body { location: location,
+                                        nvars: nvars,
                                         expr: Rc::new(body)})}
+}
+fn if_(t: Expr, y: Expr, n: Expr) -> Expr {
+    Expr::If(Rc::new(t), Rc::new(y), Rc::new(n))
 }
 
 
@@ -255,6 +269,14 @@ impl Eval for Expr {
                 let mut argvals = args.iter().map(|v| (*v).eval(env));
                 pval.apply(&mut argvals)
             },
+            Expr::If(t, y, n) => {
+                let t_res= t.eval(env);
+                match t_res {
+                    Value::Boolean(true) => y.eval(env),
+                    Value::Boolean(false) => n.eval(env),
+                    _ => string("NOT A BOOLEAN") // well, this is not Scheme; 2 if forms or *?*
+                }
+            },
             Expr::Localref(id) => {
                 let id2 : usize = (*id).try_into().unwrap(); // XX ' as ' ? safe?
                 (env[id2]).clone()
@@ -265,7 +287,7 @@ impl Eval for Expr {
                     None => string("UNBOUND")
                 }
             },
-            _ => string("NOMATCH")
+            Expr::Globaldef(a,b) => unimplemented!(),
         }
     }
 }
@@ -286,6 +308,9 @@ mod tests {
                 println!("{:?} = {:?}, expected: {:?}", prog, res, expected);
             }
         };
+        let eval= |prog: Expr| {
+            prog.eval(&Vec::new())
+        };
 
         for v in &[boolean(false),
                    boolean(true),
@@ -300,11 +325,12 @@ mod tests {
 
         // let unbound_f= globalsymbol("f");
         let _x= globalsymbol_bound("x", integer(42));
-        let _f0= globalsymbol_bound("f0", function(0, globalref(&_x)));
-        let _f1= globalsymbol_bound("f1", function(1, globalref(&_x)));
+        let _f0_= function(1001, 0, globalref(&_x));
+        let _f0= globalsymbol_bound("f0", _f0_.clone());
+        let _f1= globalsymbol_bound("f1", function(1002, 1, globalref(&_x)));
 
         t(globalref(&_f0),
-          function(0, globalref(&_x)));
+          _f0_);
         t(app(globalref(&_f0), vec![]),
           integer(42));
         t(app(globalref(&_f0), vec![globalref(&_f0)]),
@@ -312,7 +338,25 @@ mod tests {
         t(app(globalref(&_f1), vec![globalref(&_f0)]),
           integer(42));
 
+        let lt = |a: Value, b: Value| match (a, b) {
+            (Value::Integer64(_a), Value::Integer64(_b)) => Value::Boolean(_a < _b),
+            _ => string("TYPE ERROR")
+        };
+        let plus = |a: Value, b: Value| match (a, b) {
+            (Value::Integer64(_a), Value::Integer64(_b)) => Value::Integer64(_a + _b),
+            _ => string("TYPE ERROR")
+
+        };
+        let minus = |a: Value, b: Value| match (a, b) {
+            (Value::Integer64(_a), Value::Integer64(_b)) => Value::Integer64(_a - _b),
+            _ => string("TYPE ERROR")
+
+        };
+        
         let _cons= globalsymbol_bound("cons", primitive2(cons));
+        let _lt= globalsymbol_bound("<", primitive2(lt));
+        let _plus= globalsymbol_bound("+", primitive2(plus));
+        let _minus= globalsymbol_bound("-", primitive2(minus));
 
         // (cons (f1 f0) 41)
         t(app(globalref(&_cons),
@@ -333,13 +377,13 @@ mod tests {
           too_many_args_error);
 
         // (lambda () 41)
-        let e_simple= lambda(None, 0, literal(integer(41)));
+        let e_simple= lambda(2001, None, 0, literal(integer(41)));
         t(e_simple,
-          function(0, literal(integer(41))));
+          function(2001, 0, literal(integer(41))));
         
         // (lambda (x) (lambda (y) (cons x y)))
-        let e_ccons= lambda(None, 1,
-                            lambda(Some(vec![0]), 1,
+        let e_ccons= lambda(2002, None, 1,
+                            lambda(2003, Some(vec![0]), 1,
                                    app(globalref(&_cons),
                                        vec![localref(0),
                                             localref(1)])));
@@ -347,7 +391,59 @@ mod tests {
                   vec![literal(integer(41))]),
               vec![literal(integer(42))]),
           cons(integer(41), integer(42)));
+        
 
+        // (def _Y
+        //      (lambda (_Y f)
+        //        (f (lambda (arg)
+        //            ((_Y _Y f) arg)))))
+        let __Y = globalsymbol_bound
+            ("_Y",
+             eval(lambda(2004, None, 2,
+                         app(localref(1),
+                             vec![lambda(2005, Some(vec![0,1]), 1,
+                                         app(app(localref(0),
+                                                 vec![localref(0),
+                                                      localref(1)]),
+                                             vec![localref(2)]))]))));
+        // (def Y
+        //      (lambda (f)
+        //        (_Y _Y f)))
+        let _Y = globalsymbol_bound
+            ("Y",
+             eval(lambda(2006, None, 1,
+                         app(globalref(&__Y),
+                             vec![globalref(&__Y),
+                                  localref(0)]))));
+        // (def fib
+        //      (Y (lambda (fib)
+        //           (lambda (n)
+        //             (if (< n 2)
+        //                 n
+        //                 (+ (fib (- n 1))
+        //                    (fib (- n 2))))))))
+        let _fib = globalsymbol_bound
+            ("fib",
+             eval(app(globalref(&_Y),
+                      vec![lambda(2007, None, 1,
+                                  lambda(2008, Some(vec![0]), 1,
+                                         if_(app(globalref(&_lt),
+                                                 vec![localref(1),
+                                                      literal(integer(2))]),
+                                             localref(1),
+                                             app(globalref(&_plus),
+                                                 vec![app(localref(0),
+                                                          vec![app(globalref(&_minus),
+                                                                   vec![localref(1),
+                                                                        literal(integer(1))])]),
+                                                      app(localref(0),
+                                                          vec![app(globalref(&_minus),
+                                                                   vec![localref(1),
+                                                                        literal(integer(2))])])]))))])));
+        t(app(globalref(&_fib), vec![literal(integer(30))]),
+          integer(832040));
+
+        // --------------------------------------------------------------------------------
         assert_eq!(errors, 0);
     }
 
